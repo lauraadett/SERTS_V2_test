@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # SERTS LCOH Dashboard – Streamlit app for Heat Pump vs Gas Boiler
 
@@ -295,10 +294,14 @@ hardware_display = hardware
 
 # CAPEX formula with variable VAT rate
 
-# --- CAPEX calculation and parameter update (single source of truth) ---
+
+# --- CAPEX calculation and parameter update (BEG-compliant subsidy) ---
 net_sum = hardware_display + installation + electrical + other
 gross_sum = net_sum * (1 + vat_rate)  # Add variable VAT
-capex_hp_computed = gross_sum * (1 - subsidy_rate)
+# BEG constraints: eligible costs capped at €30,000, max subsidy payout €21,000
+eligible_costs = min(gross_sum, 30_000)
+subsidy_amount = min(eligible_costs * subsidy_rate, 21_000)
+capex_hp_computed = gross_sum - subsidy_amount
 gb_net_sum = gb_hardware + gb_installation + gb_exhaust + gb_other
 gb_gross_sum = gb_net_sum * (1 + vat_rate)
 
@@ -306,8 +309,6 @@ gb_gross_sum = gb_net_sum * (1 + vat_rate)
 parameters["CAPEX_hp"] = capex_hp_computed
 parameters["CAPEX_gb"] = gb_gross_sum
 
-# Display information about VAT in sidebar
-st.sidebar.info(f"✓ All prices shown include {vat_rate*100:.0f}% VAT")
 
 
 
@@ -322,15 +323,15 @@ scenario_results = calculate_lcoh_scenarios(parameters)
 col_lcoh, col_invest = st.columns(2)
 with col_lcoh:
     st.subheader("📊 LCOH Comparison")
-    labels, hp_vals = [], []
+    st.markdown(f"<span style='font-size:1.35em; font-weight:600;'>Heat Pump (<span style='color:#D62728; font-weight:800;'>{size_class.capitalize()}</span>) vs Gas Boiler</span>", unsafe_allow_html=True)
+    labels = [f"W{T}" for T in SUPPLY_TEMPS]
+    hp_vals = []
     gb_val = None
-    for size_class in SIZE_CLASSES:
-        for T_supply in SUPPLY_TEMPS:
-            row = scenario_results[(size_class, T_supply)]
-            labels.append(f"{size_class}\nW{T_supply}")
-            hp_vals.append(row["Heat Pump"])
-            if gb_val is None:
-                gb_val = row["Gas Boiler"]
+    for T_supply in SUPPLY_TEMPS:
+        row = scenario_results[(size_class, T_supply)]
+        hp_vals.append(row["Heat Pump"])
+        if gb_val is None:
+            gb_val = row["Gas Boiler"]
     fig1, ax1 = plt.subplots(figsize=(10, 7))
     x = np.arange(len(labels))
     width = 0.38
@@ -343,12 +344,10 @@ with col_lcoh:
     for i, b in enumerate(bars_hp):
         y = b.get_height()
         ax1.text(b.get_x() + b.get_width()/2, y + 0.001, f"{y:.4f}", ha="center", va="bottom", fontsize=9, fontweight="bold")
-    # X-tick labels: all HP scenarios, then 'Gas Boiler'
+    # X-tick labels: W35, W45, W55, Gas Boiler
     ax1.set_xticks(list(x) + [len(labels)])
     ax1.set_xticklabels(labels + ["Gas Boiler"], fontsize=11, fontweight="bold")
     ax1.set_ylabel("Levelized Cost of Heat (€/kWh)", fontsize=13, fontweight="bold")
-    # Remove in-plot title for unified look
-    # ax1.set_title("LCOH Comparison", fontsize=12, fontweight="bold")
     ax1.grid(axis="y", linestyle="--", alpha=0.7)
     ax1.legend(fontsize=13, loc="upper left", frameon=False)
     ax1.tick_params(axis='y', labelsize=11)
@@ -356,6 +355,8 @@ with col_lcoh:
 
 with col_invest:
     st.subheader("🧾 Breakdown of Investment Costs")
+    # Unsichtbare leere Unterüberschrift für optischen Ausgleich
+    st.markdown("<span style='opacity:0;'>.</span>", unsafe_allow_html=True)
     # ...existing investment breakdown code...
     col_stack, col_rest = st.columns([0.99, 0.01])
     with col_stack:
@@ -381,12 +382,15 @@ with col_invest:
                 ax_stack.text(1, gb_bottom + val/2, f"{percentage:.0f}%", ha='center', va='center', color=text_color, fontweight='bold', fontsize=11)
             gb_bottom += val
         y_offset = 200
+        # Sicherstellen, dass subsidy definiert ist
+        subsidy = subsidy_amount
         ax_stack.plot([-0.3, 0.3], [hp_bottom, hp_bottom], color='#333333', linestyle='--', linewidth=0.8, zorder=4)
-        ax_stack.plot([-0.3, 0.3], [capex_hp_computed, capex_hp_computed], color='#D62728', linestyle='-', linewidth=1.0, zorder=5)
         ax_stack.text(-0.65, hp_bottom + y_offset, 'Before Subsidies', va='bottom', ha='center', fontweight='bold', fontsize=13, color='#333333')
-        ax_stack.text(-0.65, capex_hp_computed + y_offset, 'After Subsidies', va='bottom', ha='center', fontweight='bold', fontsize=13, color='#D62728')
         ax_stack.text(0.3, hp_bottom + y_offset, f'€{hp_bottom:,.0f}', va='bottom', ha='left', fontweight='bold', fontsize=13, color='#333333')
-        ax_stack.text(0.3, capex_hp_computed + y_offset, f'€{capex_hp_computed:,.0f}', va='bottom', ha='left', fontweight='bold', fontsize=13, color='#D62728')
+        if subsidy > 0:
+            ax_stack.plot([-0.3, 0.3], [capex_hp_computed, capex_hp_computed], color='#D62728', linestyle='-', linewidth=1.0, zorder=5)
+            ax_stack.text(-0.65, capex_hp_computed + y_offset, 'After Subsidies', va='bottom', ha='center', fontweight='bold', fontsize=13, color='#D62728')
+            ax_stack.text(0.3, capex_hp_computed + y_offset, f'€{capex_hp_computed:,.0f}', va='bottom', ha='left', fontweight='bold', fontsize=13, color='#D62728')
         ax_stack.plot([0.7, 1.3], [gb_bottom, gb_bottom], color='#333333', linestyle='--', linewidth=0.8, zorder=4)
         ax_stack.text(1.85, gb_bottom + y_offset, 'Total', va='bottom', ha='center', fontweight='bold', fontsize=13, color='#333333')
         ax_stack.text(1.3, gb_bottom + y_offset, f'€{gb_bottom:,.0f}', va='bottom', ha='left', fontweight='bold', fontsize=13, color='#333333')
@@ -576,5 +580,4 @@ with col_env_text:
         <span style='color:#27ae60;'>Maximum reduction in CO₂ emissions with heat pump operation in summer.<br>Even in 'Dirty' winter conditions, the Heat Pump reduces emissions by <b>{savings_vs_dirty:.2f} tonnes</b> per year.</span>
     </div>
     """, unsafe_allow_html=True)
-
 
