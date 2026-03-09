@@ -1,0 +1,120 @@
+import matplotlib.pyplot as plt
+
+
+# 1. INPUT PARAMETERS
+
+parameters = {
+    # --- COMMON PARAMETERS ---
+    "Q_heat": 20000,         # [kWh/year] (The house needs 20,000 kWh of warmth every year.)
+    "lifetime": 20,          # [Years] (The calculation spans 20 years.)
+    "discount_rate": 0.05,   # 5% (Time value of money.)
+
+    # --- HEAT PUMP PARAMETERS ---
+    "price_hp": 0.30,        # [€/kWh] (Electricity Price)
+    "CAPEX_hp": 10000,       # [€] (Investment Cost --> purchase + installation)
+    # for value CAPEX_hp -- we assume a 50% total subsidy via the "BEG" program (Bundesförderung für effiziente Gebäude).
+    # Breakdown: 30% Base Subsidy + 20% Speed Bonus (Klimageschwindigkeitsbonus).
+    # Calculation: 20,000 € (Original CAPEX) * 0.5 = 10,000 €.
+    "OPEX_hp": 200,          # [€/year] (Maintenance)
+    "COP_hp": 3.4,           # (Efficiency)
+
+    # --- GAS BOILER PARAMETERS ---
+    "price_gas": 0.120,      # [€/kWh] (Gas Price)
+    "CAPEX_gb": 10000,       # [€] (Investment Cost --> purchase + installation)
+    "OPEX_gb": 350,          # [€/year] (Maint. + Chimney Sweep)
+    "COP_gb": 0.95,          # (Efficiency)
+}
+
+# 2. CALCULATION 
+
+
+def calculate_lcoh_from_dict(params):
+    results = {}
+    
+    # Shorter parameteres from 1. 
+    r = params["discount_rate"]
+    n = params["lifetime"]
+    q_heat = params["Q_heat"]
+    
+    # --- A. HEAT PUMP CALCULATION ---
+    # 1. OPEX - how much it costs to run the machine for one year.
+    annual_elec_kwh = q_heat / params["COP_hp"] #energy needed - dividing heat demand by efficiency
+    annual_fuel_cost_hp = annual_elec_kwh * params["price_hp"] #fuel cost - we multiply electricity by price
+    total_annual_cost_hp = annual_fuel_cost_hp + params["OPEX_hp"] #we add maintenance cost to get total annual cost
+    
+    ##!Fact: Heat pump saves nearly 900 Eur every year in running costs compared to the gas boiler.
+
+    # 2. Discounting (NPV - Net Present Value)
+
+    npv_cost_hp = params["CAPEX_hp"] # You pay the full investment (CAPEX) immediately.
+    #we do not discount this because it's paid today.
+    npv_heat = 0 #start at 0 because machine has not produced any heat yet.
+    
+    # THE TIME LOOP (YEAR 1 to YEAR 20)
+    #we have to loop through every single year of the project lifespan.
+    for t in range(1, n + 1):
+        df = 1 / ((1 + r) ** t) # calculating Discount Factor
+        npv_cost_hp += total_annual_cost_hp * df ## We take the annual running cost (fuel + maintenance) and multiply it by the 
+        # discount factor (df) before adding it to our total cost.
+        npv_heat += q_heat * df #we must also discount energy produced to keep units comparable to money.
+
+    # FINAL CALCULATION
+    lcoh_hp = npv_cost_hp / npv_heat
+    results['Heat Pump'] = lcoh_hp
+
+    # --- B. GAS BOILER CALCULATION ---
+    # 1. Operational Costs
+    annual_gas_kwh = q_heat / params["COP_gb"] #energy needed - dividing heat demand by efficiency
+    annual_fuel_cost_gb = annual_gas_kwh * params["price_gas"] #fuel cost - we multiply electricity by price
+    total_annual_cost_gb = annual_fuel_cost_gb + params["OPEX_gb"] #we add maintenance cost to get total annual cost
+    
+    # 2. Discounting
+    npv_cost_gb = params["CAPEX_gb"] # Year 0 investment
+    # npv_heat is the same for both, calculated above
+    
+    # THE TIME LOOP (YEAR 1 to YEAR 20)
+    for t in range(1, n + 1):
+        df = 1 / ((1 + r) ** t)
+        npv_cost_gb += total_annual_cost_gb * df
+
+    # FINAL CALCULATION    
+    lcoh_gb = npv_cost_gb / npv_heat
+    results['Gas Boiler'] = lcoh_gb
+    
+    return results
+
+# 3. RUN & PRINT RESULTS
+lcoh_results = calculate_lcoh_from_dict(parameters)#here we get the results for lcoh for both technologies
+
+#This prints the results to console text window.
+print("-" * 40)
+print(f"LCOH RESULTS (Germany 2025 Scenario)")
+print("-" * 40)
+print(f"Heat Pump:  {lcoh_results['Heat Pump']:.4f} €/kWh")
+print(f"Gas Boiler: {lcoh_results['Gas Boiler']:.4f} €/kWh")
+print("-" * 40)
+
+# Determine results
+diff = abs(lcoh_results['Heat Pump'] - lcoh_results['Gas Boiler'])
+if lcoh_results['Heat Pump'] < lcoh_results['Gas Boiler']:
+    print(f">> Heat Pump is cheaper by {diff:.4f} €/kWh")
+else:
+    print(f">> Gas Boiler is cheaper by {diff:.4f} €/kWh")
+
+# 4. BAR CHART
+names = list(lcoh_results.keys())
+values = list(lcoh_results.values())
+
+plt.figure(figsize=(8, 5))
+bars = plt.bar(names, values, color=['green', 'gray'])
+
+# Add labels on top of bars so we know the exact values
+for bar in bars:
+    yval = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2, yval + 0.002, f"{yval:.4f} €", ha='center', va='bottom', fontweight='bold')
+
+plt.ylabel('Levelized Cost of Heat (€/kWh)')
+plt.title('LCOH Comparison: Heat Pump vs Gas Boiler')
+plt.ylim(0, max(values) * 1.2) # Add space at top
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
